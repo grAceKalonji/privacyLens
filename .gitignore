@@ -1,0 +1,18 @@
+# PrivacyLens .gitignore
+
+# Configuration file with API keys (DO NOT COMMIT)
+config.js
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Logs
+*.log
+

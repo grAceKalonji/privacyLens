@@ -4,13 +4,21 @@
     "description": "Reveal what personal data websites collect and share.",
     "version": "1.0",
     "icons": { "48": "icons/icon48.png" },
-    "permissions": ["activeTab", "scripting", "storage", "tabs"],
+    "permissions": ["activeTab", "scripting", "storage", "tabs", "webRequest", "cookies"],
+    "host_permissions": ["<all_urls>"],
     "action": {
       "default_popup": "popup.html",
       "default_icon": "icons/icon48.png"
     },
     "background": {
       "service_worker": "background.js"
-    }
+    },
+    "content_scripts": [
+      {
+        "matches": ["<all_urls>"],
+        "js": ["content.js"],
+        "run_at": "document_idle"
+      }
+    ]
   }
   
