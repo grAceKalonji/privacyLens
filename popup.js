@@ -19,6 +19,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       await loadTrackers();
       // Load and display risk level
       await loadRiskLevel();
+      // Load and display threats
+      await loadThreats();
+      // Load and display data security
+      await loadDataSecurity();
     } else {
       displayError('Unable to detect current tab');
     }
@@ -33,6 +37,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadCookieCount();
     await loadTrackers();
     await loadRiskLevel();
+    await loadThreats();
+    await loadDataSecurity();
   }, 1000); // Update every second
   
   // Set up analyze button
@@ -142,10 +148,14 @@ async function loadRiskLevel() {
 // Display risk level badge
 function displayRiskLevel(riskData) {
   const riskBadge = document.getElementById('riskBadge');
+  const threatScoreDisplay = document.getElementById('threatScoreDisplay');
+  const threatBreakdown = document.getElementById('threatBreakdown');
+  
   if (!riskBadge) return;
   
   // Update text
-  riskBadge.textContent = riskData.label || 'Unknown';
+  const threatScore = riskData.threatScore || 0;
+  riskBadge.textContent = `${riskData.label || 'Unknown'} (Score: ${threatScore})`;
   
   // Update color classes
   riskBadge.className = 'w-full text-center py-2 rounded-lg text-white text-lg font-semibold';
@@ -153,12 +163,53 @@ function displayRiskLevel(riskData) {
   // Add color based on risk level
   if (riskData.color === 'green') {
     riskBadge.classList.add('bg-green-500');
-  } else if (riskData.color === 'yellow') {
-    riskBadge.classList.add('bg-yellow-500');
+  } else if (riskData.color === 'orange' || riskData.color === 'yellow') {
+    riskBadge.classList.add('bg-orange-500');
   } else if (riskData.color === 'red') {
     riskBadge.classList.add('bg-red-600');
   } else {
     riskBadge.classList.add('bg-gray-500');
+  }
+  
+  // Display threat score breakdown
+  const threatScoreSection = document.getElementById('threatScoreSection');
+  if (threatScoreSection) {
+    if (threatScoreDisplay) {
+      threatScoreDisplay.textContent = `Threat Score: ${threatScore}`;
+    }
+    
+    if (threatBreakdown && riskData.breakdown) {
+      const breakdownItems = [];
+      const breakdown = riskData.breakdown;
+      
+      if (breakdown.maliciousDomains) {
+        breakdownItems.push(`Malicious Domains: +${breakdown.maliciousDomains.points} (${breakdown.maliciousDomains.count})`);
+      }
+      if (breakdown.cryptoMining) {
+        breakdownItems.push(`Crypto Mining: +${breakdown.cryptoMining.points}`);
+      }
+      if (breakdown.formHijacking) {
+        breakdownItems.push(`Form Hijacking: +${breakdown.formHijacking.points} (${breakdown.formHijacking.count})`);
+      }
+      if (breakdown.dataExfiltration) {
+        breakdownItems.push(`Data Exfiltration: +${breakdown.dataExfiltration.points} (${breakdown.dataExfiltration.count})`);
+      }
+      if (breakdown.trackers) {
+        breakdownItems.push(`Trackers: +${breakdown.trackers.points} (${breakdown.trackers.count})`);
+      }
+      if (breakdown.thirdPartyRequests) {
+        breakdownItems.push(`Third-Party Requests: +${breakdown.thirdPartyRequests.points} (${breakdown.thirdPartyRequests.count})`);
+      }
+      
+      if (breakdownItems.length > 0) {
+        threatBreakdown.innerHTML = breakdownItems.map(item => `<li class="text-xs text-gray-600">${item}</li>`).join('');
+        threatScoreSection.style.display = 'block';
+      } else {
+        threatScoreSection.style.display = 'none';
+      }
+    } else {
+      threatScoreSection.style.display = 'none';
+    }
   }
 }
 
@@ -269,6 +320,159 @@ function displayAnalysisResults(response) {
     if (cachedIndicator) {
       cachedIndicator.style.display = 'block';
     }
+  }
+}
+
+// Load and display threats
+async function loadThreats() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getThreats' });
+    if (response && response.threats) {
+      displayThreats(response.threats);
+    }
+  } catch (error) {
+    console.error('Error getting threats:', error);
+  }
+}
+
+// Display threats
+function displayThreats(threatData) {
+  const threatsSection = document.getElementById('threatsSection');
+  const maliciousDomainsList = document.getElementById('maliciousDomainsList');
+  const cryptoMiningStatus = document.getElementById('cryptoMiningStatus');
+  const threatsCount = document.getElementById('threatsCount');
+  
+  if (!threatsSection) return;
+  
+  const maliciousCount = threatData.maliciousDomainCount || 0;
+  const hasCryptoMining = threatData.cryptoMining || false;
+  const totalThreats = maliciousCount + (hasCryptoMining ? 1 : 0);
+  
+  // Show/hide section based on threats
+  if (totalThreats > 0) {
+    threatsSection.style.display = 'block';
+    
+    // Update count
+    if (threatsCount) {
+      threatsCount.textContent = `${totalThreats} threat${totalThreats !== 1 ? 's' : ''} detected`;
+    }
+    
+    // Update malicious domains list
+    if (maliciousDomainsList) {
+      if (maliciousCount > 0) {
+        maliciousDomainsList.innerHTML = threatData.maliciousDomains
+          .map(domain => `<li class="text-red-700">${domain}</li>`)
+          .join('');
+        maliciousDomainsList.parentElement.style.display = 'block';
+      } else {
+        maliciousDomainsList.parentElement.style.display = 'none';
+      }
+    }
+    
+    // Update crypto mining status
+    if (cryptoMiningStatus) {
+      if (hasCryptoMining) {
+        cryptoMiningStatus.textContent = 'Yes - Cryptocurrency mining detected';
+        cryptoMiningStatus.classList.add('text-red-700');
+        cryptoMiningStatus.parentElement.style.display = 'block';
+      } else {
+        cryptoMiningStatus.textContent = 'No';
+        cryptoMiningStatus.classList.remove('text-red-700');
+        cryptoMiningStatus.parentElement.style.display = 'none';
+      }
+    }
+  } else {
+    threatsSection.style.display = 'none';
+  }
+}
+
+// Load and display data security information
+async function loadDataSecurity() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getDataSecurity' });
+    if (response && response.dataSecurity) {
+      displayDataSecurity(response.dataSecurity);
+    }
+  } catch (error) {
+    console.error('Error getting data security:', error);
+  }
+}
+
+// Display data security information
+function displayDataSecurity(dataSecurity) {
+  const dataSecuritySection = document.getElementById('dataSecuritySection');
+  const formHijackingStatus = document.getElementById('formHijackingStatus');
+  const formHijackingList = document.getElementById('formHijackingList');
+  const dataExfiltrationStatus = document.getElementById('dataExfiltrationStatus');
+  const dataExfiltrationList = document.getElementById('dataExfiltrationList');
+  
+  if (!dataSecuritySection) return;
+  
+  const formHijacking = dataSecurity.formHijacking || [];
+  const dataExfiltration = dataSecurity.dataExfiltration || [];
+  const hasIssues = formHijacking.length > 0 || dataExfiltration.length > 0;
+  
+  // Show/hide section based on issues
+  if (hasIssues) {
+    dataSecuritySection.style.display = 'block';
+    
+    // Form hijacking display
+    if (formHijacking.length > 0) {
+      if (formHijackingStatus) {
+        formHijackingStatus.textContent = `Yes - ${formHijacking.length} form${formHijacking.length !== 1 ? 's' : ''} submitting to third parties`;
+        formHijackingStatus.classList.add('text-red-700');
+        formHijackingStatus.parentElement.style.display = 'block';
+      }
+      
+      if (formHijackingList) {
+        formHijackingList.innerHTML = formHijacking.map(event => {
+          const fields = event.sensitiveFields.length > 0 
+            ? ` (${event.sensitiveFields.join(', ')})` 
+            : '';
+          return `<li class="text-red-700">${event.domain}${fields}</li>`;
+        }).join('');
+        formHijackingList.parentElement.style.display = 'block';
+      }
+    } else {
+      if (formHijackingStatus) {
+        formHijackingStatus.textContent = 'No';
+        formHijackingStatus.classList.remove('text-red-700');
+        formHijackingStatus.parentElement.style.display = 'none';
+      }
+      if (formHijackingList) {
+        formHijackingList.parentElement.style.display = 'none';
+      }
+    }
+    
+    // Data exfiltration display
+    if (dataExfiltration.length > 0) {
+      if (dataExfiltrationStatus) {
+        dataExfiltrationStatus.textContent = `Yes - ${dataExfiltration.length} incident${dataExfiltration.length !== 1 ? 's' : ''} detected`;
+        dataExfiltrationStatus.classList.add('text-red-700');
+        dataExfiltrationStatus.parentElement.style.display = 'block';
+      }
+      
+      if (dataExfiltrationList) {
+        dataExfiltrationList.innerHTML = dataExfiltration.map(event => {
+          const size = event.size > 1024 
+            ? ` (${(event.size / 1024).toFixed(1)}KB)` 
+            : '';
+          return `<li class="text-red-700">${event.domain}: ${event.dataType}${size}</li>`;
+        }).join('');
+        dataExfiltrationList.parentElement.style.display = 'block';
+      }
+    } else {
+      if (dataExfiltrationStatus) {
+        dataExfiltrationStatus.textContent = 'No';
+        dataExfiltrationStatus.classList.remove('text-red-700');
+        dataExfiltrationStatus.parentElement.style.display = 'none';
+      }
+      if (dataExfiltrationList) {
+        dataExfiltrationList.parentElement.style.display = 'none';
+      }
+    }
+  } else {
+    dataSecuritySection.style.display = 'none';
   }
 }
 

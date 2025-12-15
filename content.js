@@ -13,6 +13,165 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   return true;
 });
 
+// Crypto Mining Detection
+// Monitor Web Worker creation for mining patterns
+const originalWorker = window.Worker;
+window.Worker = function(...args) {
+  const worker = new originalWorker(...args);
+  
+  // Check if worker script contains mining patterns
+  if (args[0] && typeof args[0] === 'string') {
+    const scriptUrl = args[0].toLowerCase();
+    const miningPatterns = ['coinhive', 'cryptonight', 'miner', 'mining', 'hasher', 'webassembly'];
+    
+    if (miningPatterns.some(pattern => scriptUrl.includes(pattern))) {
+      // Notify background script
+      chrome.runtime.sendMessage({
+        action: 'cryptoMiningDetected',
+        url: window.location.href
+      });
+    }
+  }
+  
+  return worker;
+};
+
+// Monitor for known mining script patterns in page
+function detectCryptoMiningScripts() {
+  const scripts = document.querySelectorAll('script[src]');
+  const miningPatterns = ['coinhive', 'cryptoloot', 'miner', 'mining', 'webmine'];
+  
+  for (const script of scripts) {
+    const src = script.src.toLowerCase();
+    if (miningPatterns.some(pattern => src.includes(pattern))) {
+      chrome.runtime.sendMessage({
+        action: 'cryptoMiningDetected',
+        url: window.location.href
+      });
+      break;
+    }
+  }
+}
+
+// Run detection when page loads
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', detectCryptoMiningScripts);
+} else {
+  detectCryptoMiningScripts();
+}
+
+// Form Hijacking Detection
+
+// Monitor form submissions
+function monitorFormSubmissions() {
+  // Get current site domain
+  const siteDomain = window.location.hostname;
+  
+  // Intercept form submissions
+  document.addEventListener('submit', (event) => {
+    const form = event.target;
+    if (form.tagName === 'FORM') {
+      const formAction = form.action || form.getAttribute('action') || window.location.href;
+      const formMethod = (form.method || 'GET').toUpperCase();
+      
+      // Extract form action domain
+      let actionDomain = null;
+      try {
+        if (formAction.startsWith('http://') || formAction.startsWith('https://')) {
+          actionDomain = new URL(formAction).hostname;
+        } else if (formAction.startsWith('//')) {
+          actionDomain = new URL('https:' + formAction).hostname;
+        } else {
+          // Relative URL, use current domain
+          actionDomain = siteDomain;
+        }
+      } catch (e) {
+        actionDomain = siteDomain;
+      }
+      
+      // Check if form submits to third-party domain
+      if (actionDomain && actionDomain !== siteDomain && !actionDomain.endsWith('.' + siteDomain)) {
+        // Extract root domains for comparison
+        const siteRoot = extractRootDomain(siteDomain);
+        const actionRoot = extractRootDomain(actionDomain);
+        
+        if (siteRoot !== actionRoot) {
+          // Form is submitting to third party - potential hijacking
+          
+          // Identify sensitive fields
+          const sensitiveFields = [];
+          const inputs = form.querySelectorAll('input, textarea, select');
+          
+          for (const input of inputs) {
+            const type = (input.type || '').toLowerCase();
+            const name = (input.name || '').toLowerCase();
+            const id = (input.id || '').toLowerCase();
+            
+            if (type === 'password' || name.includes('password') || id.includes('password')) {
+              sensitiveFields.push('password');
+            } else if (type === 'email' || name.includes('email') || id.includes('email')) {
+              sensitiveFields.push('email');
+            } else if (type === 'tel' || name.includes('phone') || id.includes('phone')) {
+              sensitiveFields.push('phone');
+            } else if (name.includes('card') || id.includes('card') || 
+                       name.includes('credit') || id.includes('credit') ||
+                       name.includes('cvv') || id.includes('cvv')) {
+              sensitiveFields.push('credit_card');
+            }
+          }
+          
+          // Notify background script
+          chrome.runtime.sendMessage({
+            action: 'formHijackingDetected',
+            siteDomain: siteDomain,
+            formData: {
+              domain: actionDomain,
+              sensitiveFields: [...new Set(sensitiveFields)], // Remove duplicates
+              timestamp: Date.now()
+            }
+          });
+        }
+      }
+    }
+  }, true); // Use capture phase to catch early
+}
+
+// Helper function to extract root domain
+function extractRootDomain(hostname) {
+  if (!hostname) return null;
+  if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
+    return hostname;
+  }
+  const parts = hostname.split('.');
+  if (parts.length >= 2) {
+    return parts.slice(-2).join('.');
+  }
+  return hostname;
+}
+
+// Initialize form monitoring
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', monitorFormSubmissions);
+} else {
+  monitorFormSubmissions();
+}
+
+// Also monitor dynamically added forms
+const observer = new MutationObserver((mutations) => {
+  for (const mutation of mutations) {
+    for (const node of mutation.addedNodes) {
+      if (node.tagName === 'FORM' || (node.querySelector && node.querySelector('form'))) {
+        // Form added to page, monitoring is already set up via event delegation
+      }
+    }
+  }
+});
+
+observer.observe(document.body, {
+  childList: true,
+  subtree: true
+});
+
 // Extract main content from page
 function extractMainContent() {
   // Try to find main content area
@@ -191,20 +350,27 @@ function updateRiskBadge(riskData) {
   
   if (!progressFill || !label) return;
   
-  // Determine color and progress percentage
+  // Determine color and progress percentage based on threat score
   let color, progressPercent, labelText;
+  const threatScore = riskData.threatScore || 0;
   
-  if (riskData.level === 'low') {
+  if (riskData.level === 'low' || threatScore <= 20) {
     color = '#22c55e'; // Green
-    progressPercent = Math.min(33, (riskData.thirdPartyCount / 3) * 33);
+    // 0-20 score maps to 0-33% of progress bar
+    progressPercent = Math.min(33, (threatScore / 20) * 33);
     labelText = 'Low';
-  } else if (riskData.level === 'medium') {
+  } else if (riskData.level === 'medium' || (threatScore >= 21 && threatScore <= 50)) {
     color = '#f97316'; // Orange
-    progressPercent = 33 + Math.min(33, ((riskData.thirdPartyCount - 3) / 7) * 33);
+    // 21-50 score maps to 33-66% of progress bar
+    const scoreInRange = threatScore - 21; // 0-29
+    progressPercent = 33 + Math.min(33, (scoreInRange / 29) * 33);
     labelText = 'Med';
-  } else if (riskData.level === 'high') {
+  } else if (riskData.level === 'high' || threatScore >= 51) {
     color = '#dc2626'; // Red
-    progressPercent = 66 + Math.min(34, ((riskData.thirdPartyCount - 10) / 20) * 34);
+    // 51+ score maps to 66-100% of progress bar
+    // Cap at 100 for very high scores
+    const scoreInRange = Math.min(threatScore - 51, 50); // Cap at 50 points above threshold
+    progressPercent = 66 + Math.min(34, (scoreInRange / 50) * 34);
     labelText = 'High';
   } else {
     color = '#6b7280'; // Gray

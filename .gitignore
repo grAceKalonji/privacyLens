@@ -3,6 +3,9 @@
 # Configuration file with API keys (DO NOT COMMIT)
 config.js
 
+# Documentation
+docs/
+
 # OS files
 .DS_Store
 Thumbs.db

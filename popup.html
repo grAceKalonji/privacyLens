@@ -13,6 +13,15 @@
       Calculating...
     </div>
     
+    <div id="threatScoreSection" class="text-xs text-gray-600 py-1 px-3 bg-gray-50 rounded-lg border border-gray-200" style="display: none;">
+      <div id="threatScoreDisplay" class="font-medium mb-1"></div>
+      <details>
+        <summary class="cursor-pointer text-gray-700">Score Breakdown</summary>
+        <ul id="threatBreakdown" class="mt-1 space-y-0.5">
+        </ul>
+      </details>
+    </div>
+    
     <div id="urlDisplay" class="text-sm text-gray-600 font-medium py-2 px-3 bg-gray-50 rounded-lg border border-gray-200">
       Loading...
     </div>
@@ -30,6 +39,48 @@
     </div>
     
     <div id="trackerCategories" class="text-xs text-gray-600 py-1 px-3 bg-orange-50 rounded-lg border border-orange-200" style="display: none;">
+    </div>
+    
+    <div id="threatsSection" class="mt-4 p-3 bg-red-50 rounded-lg border border-red-200" style="display: none;">
+      <h3 class="text-sm font-semibold text-red-900 mb-2">Threats Detected</h3>
+      <div id="threatsCount" class="text-xs text-red-700 font-medium mb-2"></div>
+      
+      <details class="mb-2">
+        <summary class="text-xs font-medium text-red-900 cursor-pointer">Malicious Domains</summary>
+        <ul id="maliciousDomainsList" class="mt-1 text-xs text-red-700 list-disc list-inside space-y-1">
+        </ul>
+      </details>
+      
+      <div class="text-xs">
+        <span class="font-medium text-red-900">Crypto Mining: </span>
+        <span id="cryptoMiningStatus" class="text-red-700">No</span>
+      </div>
+    </div>
+    
+    <div id="dataSecuritySection" class="mt-4 p-3 bg-yellow-50 rounded-lg border border-yellow-200" style="display: none;">
+      <h3 class="text-sm font-semibold text-yellow-900 mb-2">Data Security</h3>
+      
+      <div class="mb-2 text-xs">
+        <span class="font-medium text-yellow-900">Form Hijacking: </span>
+        <span id="formHijackingStatus" class="text-yellow-700">No</span>
+      </div>
+      
+      <details class="mb-2" style="display: none;">
+        <summary class="text-xs font-medium text-yellow-900 cursor-pointer">Forms Submitting to Third Parties</summary>
+        <ul id="formHijackingList" class="mt-1 text-xs text-yellow-700 list-disc list-inside space-y-1">
+        </ul>
+      </details>
+      
+      <div class="mb-2 text-xs">
+        <span class="font-medium text-yellow-900">Data Exfiltration: </span>
+        <span id="dataExfiltrationStatus" class="text-yellow-700">No</span>
+      </div>
+      
+      <details class="mb-2" style="display: none;">
+        <summary class="text-xs font-medium text-yellow-900 cursor-pointer">Sensitive Data Sent to Third Parties</summary>
+        <ul id="dataExfiltrationList" class="mt-1 text-xs text-yellow-700 list-disc list-inside space-y-1">
+        </ul>
+      </details>
     </div>
     
     <button id="analyzePolicyButton" class="w-full mt-4 px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors duration-200 shadow-sm">

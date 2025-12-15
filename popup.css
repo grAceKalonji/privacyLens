@@ -47,10 +47,12 @@ body {
 .bg-blue-50 { background-color: #eff6ff; }
 .bg-purple-50 { background-color: #faf5ff; }
 .bg-orange-50 { background-color: #fff7ed; }
+.bg-yellow-50 { background-color: #fefce8; }
 .bg-red-50 { background-color: #fef2f2; }
 .bg-green-500 { background-color: #22c55e; }
 .bg-green-600 { background-color: #16a34a; }
 .bg-green-700 { background-color: #15803d; }
+.bg-orange-500 { background-color: #f97316; }
 .bg-yellow-500 { background-color: #eab308; }
 .bg-red-600 { background-color: #dc2626; }
 .bg-blue-600 { background-color: #2563eb; }
@@ -63,6 +65,7 @@ body {
 .border-blue-200 { border-color: #bfdbfe; }
 .border-purple-200 { border-color: #e9d5ff; }
 .border-orange-200 { border-color: #fed7aa; }
+.border-yellow-200 { border-color: #fde047; }
 .border-red-200 { border-color: #fecaca; }
 
 /* Interactive states */

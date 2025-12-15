@@ -105,9 +105,66 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const riskLevel = await calculateRiskLevel(domain);
         sendResponse({ riskData: riskLevel });
       } else {
-        sendResponse({ riskData: { level: 'unknown', color: 'gray', label: 'Unknown', thirdPartyCount: 0, trackerCount: 0 } });
+        sendResponse({ riskData: { level: 'unknown', color: 'gray', label: 'Unknown', threatScore: 0, breakdown: {}, thirdPartyCount: 0, trackerCount: 0 } });
       }
     })();
+    return true;
+  } else if (request.action === 'getThreats') {
+    // Get detected threats for current domain
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      if (tabs && tabs.length > 0) {
+        const domain = extractDomain(tabs[0].url);
+        const threats = await getDetectedThreats(domain);
+        sendResponse({ threats: threats });
+      } else {
+        sendResponse({ threats: { maliciousDomains: [], cryptoMining: false, maliciousDomainCount: 0 } });
+      }
+    });
+    return true;
+  } else if (request.action === 'checkMaliciousDomain') {
+    // Check if a domain is malicious (for real-time checking)
+    (async () => {
+      const domain = request.domain;
+      if (domain) {
+        const isMalicious = await checkDomainAgainstURLhaus(domain);
+        sendResponse({ domain: domain, isMalicious: isMalicious });
+      } else {
+        sendResponse({ domain: domain, isMalicious: false });
+      }
+    })();
+    return true;
+  } else if (request.action === 'cryptoMiningDetected') {
+    // Handle crypto mining detection from content script
+    (async () => {
+      if (request.url) {
+        const domain = extractDomain(request.url);
+        if (domain) {
+          await storeCryptoMining(domain, true);
+        }
+      }
+      sendResponse({ success: true });
+    })();
+    return true;
+  } else if (request.action === 'formHijackingDetected') {
+    // Handle form hijacking detection from content script
+    (async () => {
+      if (request.siteDomain && request.formData) {
+        await storeFormHijacking(request.siteDomain, request.formData);
+      }
+      sendResponse({ success: true });
+    })();
+    return true;
+  } else if (request.action === 'getDataSecurity') {
+    // Get data security information (form hijacking, data exfiltration)
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      if (tabs && tabs.length > 0) {
+        const domain = extractDomain(tabs[0].url);
+        const dataSecurity = await getDataSecurityInfo(domain);
+        sendResponse({ dataSecurity: dataSecurity });
+      } else {
+        sendResponse({ dataSecurity: { formHijacking: [], dataExfiltration: [] } });
+      }
+    });
     return true;
   }
 });
@@ -338,45 +395,123 @@ async function getDetectedTrackers(domain) {
   };
 }
 
-// Calculate risk level based on third-party requests and trackers
-async function calculateRiskLevel(domain) {
+// Calculate threat score based on detected threats
+async function calculateThreatScore(domain) {
   if (!domain) {
-    return { level: 'unknown', color: 'gray', label: 'Unknown' };
+    return { score: 0, breakdown: {} };
   }
   
-  // Get third-party request count
+  let score = 0;
+  const breakdown = {};
+  
+  // Get all threat data
+  const threats = await getDetectedThreats(domain);
+  const trackers = await getDetectedTrackers(domain);
+  const dataSecurity = await getDataSecurityInfo(domain);
   const thirdPartyCount = await getThirdPartyCount(domain);
   
-  // Get tracker count
+  // Known malicious domain: +50 points per domain
+  if (threats.maliciousDomainCount > 0) {
+    const maliciousPoints = threats.maliciousDomainCount * 50;
+    score += maliciousPoints;
+    breakdown.maliciousDomains = {
+      count: threats.maliciousDomainCount,
+      points: maliciousPoints
+    };
+  }
+  
+  // Crypto mining detected: +40 points
+  if (threats.cryptoMining) {
+    score += 40;
+    breakdown.cryptoMining = { points: 40 };
+  }
+  
+  // Form hijacking: +35 points per incident
+  if (dataSecurity.formHijacking && dataSecurity.formHijacking.length > 0) {
+    const formPoints = dataSecurity.formHijacking.length * 35;
+    score += formPoints;
+    breakdown.formHijacking = {
+      count: dataSecurity.formHijacking.length,
+      points: formPoints
+    };
+  }
+  
+  // Excessive data exfiltration: +30 points per incident
+  if (dataSecurity.dataExfiltration && dataSecurity.dataExfiltration.length > 0) {
+    const exfilPoints = dataSecurity.dataExfiltration.length * 30;
+    score += exfilPoints;
+    breakdown.dataExfiltration = {
+      count: dataSecurity.dataExfiltration.length,
+      points: exfilPoints
+    };
+  }
+  
+  // Known tracker: +10 points per tracker
+  if (trackers.total > 0) {
+    const trackerPoints = trackers.total * 10;
+    score += trackerPoints;
+    breakdown.trackers = {
+      count: trackers.total,
+      points: trackerPoints
+    };
+  }
+  
+  // Third-party request: +1 point per request
+  if (thirdPartyCount > 0) {
+    score += thirdPartyCount;
+    breakdown.thirdPartyRequests = {
+      count: thirdPartyCount,
+      points: thirdPartyCount
+    };
+  }
+  
+  // Store threat score
+  const scoreKey = `threatScore_${domain}`;
+  await chrome.storage.local.set({ 
+    [scoreKey]: score,
+    [`${scoreKey}_breakdown`]: breakdown
+  });
+  
+  return { score: score, breakdown: breakdown };
+}
+
+// Calculate risk level based on threat score
+async function calculateRiskLevel(domain) {
+  if (!domain) {
+    return { level: 'unknown', color: 'gray', label: 'Unknown', threatScore: 0, breakdown: {} };
+  }
+  
+  // Calculate threat score
+  const threatData = await calculateThreatScore(domain);
+  const threatScore = threatData.score;
+  const breakdown = threatData.breakdown;
+  
+  // Get additional data for display
+  const thirdPartyCount = await getThirdPartyCount(domain);
   const trackers = await getDetectedTrackers(domain);
   const trackerCount = trackers.total || 0;
   
-  // Risk logic:
-  // Low Risk (Green): < 3 third-party domains AND 0 known trackers
-  // Medium Risk (Yellow): 3-10 third-party domains OR 1-3 known trackers
-  // High Risk (Red): >= 10 third-party domains OR >= 3 known trackers
+  // Risk levels based on threat score:
+  // Low Risk (Green): 0-20 threat score
+  // Medium Risk (Orange): 21-50 threat score
+  // High Risk (Red): 51+ threat score
   
   let riskLevel, color, label;
   
-  if (thirdPartyCount < 3 && trackerCount === 0) {
+  if (threatScore <= 20) {
     // Low Risk
     riskLevel = 'low';
     color = 'green';
     label = 'Low Risk';
-  } else if (thirdPartyCount >= 10 || trackerCount >= 3) {
+  } else if (threatScore >= 51) {
     // High Risk
     riskLevel = 'high';
     color = 'red';
     label = 'High Risk';
-  } else if ((thirdPartyCount >= 3 && thirdPartyCount < 10) || (trackerCount >= 1 && trackerCount < 3)) {
+  } else {
     // Medium Risk
     riskLevel = 'medium';
-    color = 'yellow';
-    label = 'Medium Risk';
-  } else {
-    // Default to medium if we can't determine
-    riskLevel = 'medium';
-    color = 'yellow';
+    color = 'orange';
     label = 'Medium Risk';
   }
   
@@ -384,9 +519,248 @@ async function calculateRiskLevel(domain) {
     level: riskLevel,
     color: color,
     label: label,
+    threatScore: threatScore,
+    breakdown: breakdown,
     thirdPartyCount: thirdPartyCount,
     trackerCount: trackerCount
   };
+}
+
+// Threat Detection Functions
+
+// Known crypto mining pool domains
+const CRYPTO_MINING_DOMAINS = [
+  'coinhive.com',
+  'cryptoloot.com',
+  'webmine.pro',
+  'miner.nablabee.com',
+  'monerominer.rocks',
+  'coinimp.com',
+  'jsecoin.com',
+  'minero.cc',
+  'crypto-webminer.com',
+  'cryptonight.wasm',
+  'webassembly.stream',
+  'miningpoolhub.com',
+  'nicehash.com',
+  'minergate.com'
+];
+
+// Known crypto mining script patterns
+const CRYPTO_MINING_PATTERNS = [
+  'coinhive',
+  'cryptonight',
+  'webassembly',
+  'miner',
+  'mining',
+  'hasher',
+  'hashrate',
+  'authedmine',
+  'cryptoloot',
+  'webmine'
+];
+
+// Check domain against Abuse.ch URLhaus API
+async function checkDomainAgainstURLhaus(domain) {
+  if (!domain) return false;
+  
+  // Check cache first
+  const cacheKey = `urlhaus_${domain}`;
+  const cached = await chrome.storage.local.get([cacheKey]);
+  if (cached[cacheKey] !== undefined) {
+    return cached[cacheKey];
+  }
+  
+  try {
+    // URLhaus API endpoint - check by host
+    const response = await fetch(`https://urlhaus.abuse.ch/api/v1/host/${domain}/`, {
+      method: 'GET',
+      headers: {
+        'Accept': 'application/json'
+      }
+    });
+    
+    if (response.ok) {
+      const data = await response.json();
+      // URLhaus returns query_status: "ok" if domain is found (malicious)
+      const isMalicious = data.query_status === 'ok' && data.threat && data.threat.length > 0;
+      
+      // Cache result (24 hour expiry)
+      await chrome.storage.local.set({
+        [cacheKey]: isMalicious,
+        [`${cacheKey}_timestamp`]: Date.now()
+      });
+      
+      return isMalicious;
+    } else if (response.status === 404) {
+      // Domain not found in database = not malicious
+      await chrome.storage.local.set({
+        [cacheKey]: false,
+        [`${cacheKey}_timestamp`]: Date.now()
+      });
+      return false;
+    }
+  } catch (error) {
+    console.error('URLhaus API error:', error);
+    // On error, return false (assume not malicious to avoid false positives)
+    return false;
+  }
+  
+  return false;
+}
+
+// Check if domain is a known crypto mining pool
+function isCryptoMiningDomain(domain) {
+  if (!domain) return false;
+  const lowerDomain = domain.toLowerCase();
+  return CRYPTO_MINING_DOMAINS.some(miningDomain => 
+    lowerDomain.includes(miningDomain) || lowerDomain.endsWith('.' + miningDomain)
+  );
+}
+
+// Check if URL contains crypto mining patterns
+function containsCryptoMiningPattern(url) {
+  if (!url) return false;
+  const lowerUrl = url.toLowerCase();
+  return CRYPTO_MINING_PATTERNS.some(pattern => lowerUrl.includes(pattern));
+}
+
+// Store malicious domain detection
+async function storeMaliciousDomain(siteDomain, maliciousDomain) {
+  const key = `maliciousDomains_${siteDomain}`;
+  const result = await chrome.storage.local.get([key]);
+  let domains = result[key] || [];
+  
+  if (!domains.includes(maliciousDomain)) {
+    domains.push(maliciousDomain);
+    await chrome.storage.local.set({ [key]: domains });
+  }
+}
+
+// Store crypto mining detection
+async function storeCryptoMining(siteDomain, detected) {
+  const key = `cryptoMining_${siteDomain}`;
+  await chrome.storage.local.set({ [key]: detected });
+}
+
+// Get detected threats for a domain
+async function getDetectedThreats(domain) {
+  if (!domain) {
+    return { maliciousDomains: [], cryptoMining: false, maliciousDomainCount: 0 };
+  }
+  
+  // Get malicious domains
+  const maliciousKey = `maliciousDomains_${domain}`;
+  const maliciousResult = await chrome.storage.local.get([maliciousKey]);
+  const maliciousDomains = maliciousResult[maliciousKey] || [];
+  
+  // Get crypto mining status
+  const miningKey = `cryptoMining_${domain}`;
+  const miningResult = await chrome.storage.local.get([miningKey]);
+  const cryptoMining = miningResult[miningKey] || false;
+  
+  return {
+    maliciousDomains: maliciousDomains,
+    cryptoMining: cryptoMining,
+    maliciousDomainCount: maliciousDomains.length
+  };
+}
+
+// Form Hijacking & Data Exfiltration Detection
+
+// Sensitive data patterns (regex)
+const SENSITIVE_DATA_PATTERNS = {
+  email: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b/g,
+  phone: /\b(?:\+?1[-.\s]?)?\(?[0-9]{3}\)?[-.\s]?[0-9]{3}[-.\s]?[0-9]{4}\b/g,
+  creditCard: /\b(?:\d{4}[-\s]?){3}\d{4}\b/g, // Basic pattern (not perfect, but catches most)
+  ssn: /\b\d{3}-\d{2}-\d{4}\b/g
+};
+
+// Store form hijacking event
+async function storeFormHijacking(siteDomain, formData) {
+  const key = `formHijacking_${siteDomain}`;
+  const result = await chrome.storage.local.get([key]);
+  let events = result[key] || [];
+  
+  // Add new event (avoid duplicates)
+  const eventExists = events.some(e => 
+    e.domain === formData.domain && 
+    e.timestamp === formData.timestamp
+  );
+  
+  if (!eventExists) {
+    events.push({
+      domain: formData.domain,
+      sensitiveFields: formData.sensitiveFields,
+      timestamp: formData.timestamp || Date.now()
+    });
+    await chrome.storage.local.set({ [key]: events });
+  }
+}
+
+// Store data exfiltration event
+async function storeDataExfiltration(siteDomain, exfiltrationData) {
+  const key = `dataExfiltration_${siteDomain}`;
+  const result = await chrome.storage.local.get([key]);
+  let events = result[key] || [];
+  
+  // Add new event
+  const eventExists = events.some(e => 
+    e.domain === exfiltrationData.domain && 
+    e.dataType === exfiltrationData.dataType &&
+    Math.abs(e.timestamp - exfiltrationData.timestamp) < 1000 // Same second
+  );
+  
+  if (!eventExists) {
+    events.push({
+      domain: exfiltrationData.domain,
+      dataType: exfiltrationData.dataType,
+      size: exfiltrationData.size,
+      timestamp: exfiltrationData.timestamp || Date.now()
+    });
+    await chrome.storage.local.set({ [key]: events });
+  }
+}
+
+// Get data security information
+async function getDataSecurityInfo(domain) {
+  if (!domain) {
+    return { formHijacking: [], dataExfiltration: [] };
+  }
+  
+  // Get form hijacking events
+  const formKey = `formHijacking_${domain}`;
+  const formResult = await chrome.storage.local.get([formKey]);
+  const formHijacking = formResult[formKey] || [];
+  
+  // Get data exfiltration events
+  const exfilKey = `dataExfiltration_${domain}`;
+  const exfilResult = await chrome.storage.local.get([exfilKey]);
+  const dataExfiltration = exfilResult[exfilKey] || [];
+  
+  return {
+    formHijacking: formHijacking,
+    dataExfiltration: dataExfiltration
+  };
+}
+
+// Check if request body contains sensitive data patterns
+function detectSensitiveDataInRequest(requestBody) {
+  if (!requestBody) return [];
+  
+  const detected = [];
+  const bodyString = typeof requestBody === 'string' 
+    ? requestBody 
+    : JSON.stringify(requestBody);
+  
+  for (const [dataType, pattern] of Object.entries(SENSITIVE_DATA_PATTERNS)) {
+    const matches = bodyString.match(pattern);
+    if (matches && matches.length > 0) {
+      detected.push(dataType);
+    }
+  }
+  
+  return detected;
 }
 
 // Listen to all network requests
@@ -399,19 +773,88 @@ chrome.webRequest.onBeforeRequest.addListener(
     
     // Get the tab that made this request
     if (details.tabId && details.tabId > 0) {
-      chrome.tabs.get(details.tabId, (tab) => {
+      chrome.tabs.get(details.tabId, async (tab) => {
         if (tab && tab.url) {
           const siteDomain = extractDomain(tab.url);
-          if (siteDomain && isThirdParty(details.url, siteDomain)) {
-            storeThirdPartyRequest(siteDomain, details.url);
+          if (siteDomain) {
+            const requestDomain = extractDomain(details.url);
+            
+            // Check for third-party requests
+            if (isThirdParty(details.url, siteDomain)) {
+              storeThirdPartyRequest(siteDomain, details.url);
+              
+              // Check for crypto mining domains
+              if (isCryptoMiningDomain(requestDomain) || containsCryptoMiningPattern(details.url)) {
+                await storeCryptoMining(siteDomain, true);
+              }
+              
+              // Check for malicious domains (async, don't block)
+              checkDomainAgainstURLhaus(requestDomain).then(isMalicious => {
+                if (isMalicious) {
+                  storeMaliciousDomain(siteDomain, requestDomain);
+                }
+              });
+              
+              // Check for data exfiltration (POST requests with data)
+              // Note: In Manifest V3, we can access requestBody but it's limited
+              // We'll primarily rely on content script form monitoring for detailed detection
+              if (details.method === 'POST' && details.requestBody) {
+                try {
+                  // Check request body for sensitive data
+                  let requestBodyString = '';
+                  
+                  if (details.requestBody.formData) {
+                    // Form data - convert to string for pattern matching
+                    requestBodyString = JSON.stringify(details.requestBody.formData);
+                  } else if (details.requestBody.raw && details.requestBody.raw.length > 0) {
+                    // Raw data - estimate size for large upload detection
+                    const totalSize = details.requestBody.raw.reduce((sum, item) => {
+                      return sum + (item.bytes ? item.bytes.byteLength : 0);
+                    }, 0);
+                    
+                    // Flag large uploads to third parties
+                    if (totalSize > 100 * 1024) { // 100KB
+                      await storeDataExfiltration(siteDomain, {
+                        domain: requestDomain,
+                        dataType: 'large_upload',
+                        size: totalSize,
+                        timestamp: Date.now()
+                      });
+                    }
+                    
+                    // Note: We can't easily read raw ArrayBuffer content here
+                    // Detailed sensitive data detection is handled by content script
+                  }
+                  
+                  // Check form data for sensitive patterns
+                  if (requestBodyString) {
+                    const sensitiveData = detectSensitiveDataInRequest(requestBodyString);
+                    if (sensitiveData.length > 0) {
+                      await storeDataExfiltration(siteDomain, {
+                        domain: requestDomain,
+                        dataType: sensitiveData.join(', '),
+                        size: requestBodyString.length,
+                        timestamp: Date.now()
+                      });
+                    }
+                  }
+                } catch (e) {
+                  // Ignore errors in request body parsing
+                  console.log('Error parsing request body:', e);
+                }
+              }
+            }
           }
         }
       });
     }
   },
   { urls: ["<all_urls>"] },
-  []
+  ["requestBody"]
 );
+
+// Note: In Manifest V3, requestBody access is limited
+// We primarily rely on content script form monitoring for detailed detection
 
 // Privacy Policy Analysis Functions
 
