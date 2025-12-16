@@ -1,17 +1,26 @@
-// PrivacyLens Content Script
-// Extracts text content from privacy policy pages and displays risk badge
+/**
+ * PrivacyLens Content Script
+ * 
+ * Injected into web pages to:
+ * - Extract text content from privacy policy pages
+ * - Display in-page risk badge
+ * - Monitor form submissions for hijacking
+ * - Detect crypto mining scripts
+ */
 
 // Listen for messages from background script
-chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  if (request.action === 'extractText') {
-    const text = extractMainContent();
-    sendResponse({ text: text });
-  } else if (request.action === 'updateRiskBadge') {
-    updateRiskBadge(request.riskData);
-    sendResponse({ success: true });
-  }
-  return true;
-});
+if (typeof chrome !== "undefined" && chrome.runtime && chrome.runtime.onMessage && typeof chrome.runtime.onMessage.addListener === "function") {
+  chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
+    if (request.action === 'extractText') {
+      const text = extractMainContent();
+      sendResponse({ text: text });
+    } else if (request.action === 'updateRiskBadge') {
+      updateRiskBadge(request.riskData);
+      sendResponse({ success: true });
+    }
+    return true;
+  });
+}
 
 // Crypto Mining Detection
 // Monitor Web Worker creation for mining patterns
@@ -136,7 +145,12 @@ function monitorFormSubmissions() {
   }, true); // Use capture phase to catch early
 }
 
-// Helper function to extract root domain
+/**
+ * Extract root domain from hostname (duplicate of background.js version)
+ * Note: Content scripts run in isolated context, so we need this here
+ * @param {string} hostname - Full hostname
+ * @returns {string|null} - Root domain or null
+ */
 function extractRootDomain(hostname) {
   if (!hostname) return null;
   if (hostname === 'localhost' || /^\d+\.\d+\.\d+\.\d+$/.test(hostname)) {
@@ -172,7 +186,10 @@ observer.observe(document.body, {
   subtree: true
 });
 
-// Extract main content from page
+/**
+ * Extract main content text from page (removes navigation, headers, footers)
+ * @returns {string} - Clean text content
+ */
 function extractMainContent() {
   // Try to find main content area
   const mainSelectors = [

@@ -5,11 +5,12 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <link rel="stylesheet" href="popup.css" />
 </head>
-<body class="p-6 bg-white min-w-[320px]">
+
+<body class="p-6 bg-white min-w-[320px] max-h-[600px] overflow-y-auto ">
   <div class="space-y-4">
     <h1 class="text-2xl font-semibold text-gray-900 tracking-tight">PrivacyLens</h1>
     
-    <div id="riskBadge" class="w-full text-center py-2 rounded-lg text-white text-lg font-semibold bg-gray-500">
+    <div id="riskBadge" class="w-full text-center py-2 rounded-lg text-white text-sm font-medium bg-gray-500">
       Calculating...
     </div>
     
@@ -26,19 +27,63 @@
       Loading...
     </div>
     
-    <div id="thirdPartyCount" class="text-sm text-gray-700 font-medium py-2 px-3 bg-blue-50 rounded-lg border border-blue-200">
-      Third-party requests: 0
+    <div class="grid grid-cols-3 gap-2">
+      <div id="thirdPartyCount" class="text-center py-3 px-2 bg-blue-50 rounded-lg border border-blue-200">
+        <div class="text-xs text-gray-600 mb-1">Third-party</div>
+        <div class="text-lg font-semibold text-blue-700">0</div>
+      </div>
+      
+      <div id="cookieCount" class="text-center py-3 px-2 bg-purple-50 rounded-lg border border-purple-200">
+        <div class="text-xs text-gray-600 mb-1">Cookies</div>
+        <div class="text-lg font-semibold text-purple-700">0</div>
+      </div>
+      
+      <div id="trackerCount" class="text-center py-3 px-2 bg-orange-50 rounded-lg border border-orange-200">
+        <div class="text-xs text-gray-600 mb-1">Trackers</div>
+        <div class="text-lg font-semibold text-orange-700">0</div>
+      </div>
     </div>
     
-    <div id="cookieCount" class="text-sm text-gray-700 font-medium py-2 px-3 bg-purple-50 rounded-lg border border-purple-200">
-      Cookies: 0
-    </div>
-    
-    <div id="trackerCount" class="text-sm text-gray-700 font-medium py-2 px-3 bg-orange-50 rounded-lg border border-orange-200">
-      Known trackers: 0
+    <div id="policyWarningCard" class="mt-2 py-2 px-3 bg-red-50 rounded-lg border border-red-200 text-center" style="display: none;">
+      <div class="text-sm font-semibold text-red-700">Site not honest</div>
     </div>
     
     <div id="trackerCategories" class="text-xs text-gray-600 py-1 px-3 bg-orange-50 rounded-lg border border-orange-200" style="display: none;">
+    </div>
+    
+    <!-- Data Being Collected Section -->
+    <div id="dataCollectionSection" class="mt-4 p-3 bg-blue-50 rounded-lg border border-blue-200" style="display: none;">
+      <h3 class="text-sm font-semibold text-blue-900 mb-2">Data Being Collected</h3>
+      
+      <details class="mb-2">
+        <summary class="text-xs font-medium text-blue-900 cursor-pointer">Personal Information</summary>
+        <div id="personalInfoList" class="mt-1 text-xs text-blue-700">
+        </div>
+      </details>
+      
+      <details class="mb-2">
+        <summary class="text-xs font-medium text-blue-900 cursor-pointer">Behavioral Data</summary>
+        <div id="behavioralDataList" class="mt-1 text-xs text-blue-700">
+        </div>
+      </details>
+      
+      <details class="mb-2">
+        <summary class="text-xs font-medium text-blue-900 cursor-pointer">Form Data</summary>
+        <div id="formDataList" class="mt-1 text-xs text-blue-700">
+        </div>
+      </details>
+    </div>
+    
+    <!-- Data Shared With Section -->
+    <div id="dataSharedSection" class="mt-4 p-3 bg-indigo-50 rounded-lg border border-indigo-200" style="display: none;">
+      <h3 class="text-sm font-semibold text-indigo-900 mb-2">Data Shared With</h3>
+      <div id="dataSharedList" class="text-xs text-indigo-700">
+      </div>
+      <details id="dataSharedMore" style="display: none;">
+        <summary class="text-xs font-medium text-indigo-900 cursor-pointer mt-2">Show all sites</summary>
+        <div id="dataSharedAll" class="text-xs text-indigo-700 mt-1">
+        </div>
+      </details>
     </div>
     
     <div id="threatsSection" class="mt-4 p-3 bg-red-50 rounded-lg border border-red-200" style="display: none;">
@@ -83,7 +128,7 @@
       </details>
     </div>
     
-    <button id="analyzePolicyButton" class="w-full mt-4 px-4 py-2.5 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700 transition-colors duration-200 shadow-sm">
+    <button id="analyzePolicyButton" class="w-full mt-4 px-4 py-2.5 bg-black text-white rounded-lg font-medium hover:bg-gray-500 transition-colors duration-200">
       Analyze Privacy Policy
     </button>
     
@@ -126,6 +171,12 @@
         <ul id="riskyBehaviors" class="mt-2 text-sm text-red-700 list-disc list-inside space-y-1">
         </ul>
       </details>
+    </div>
+    
+    <div class="mt-4 pt-3 border-t border-gray-200">
+      <p class="text-xs text-gray-500 text-center">
+        PrivacyLens analyzes your data locally. Nothing is stored or sent elsewhere.
+      </p>
     </div>
   </div>
   <script src="popup.js"></script>

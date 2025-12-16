@@ -1,5 +1,10 @@
-// PrivacyLens Background Service Worker
-// Handles extension lifecycle and message passing
+/**
+ * PrivacyLens Background Service Worker
+ * 
+ * Handles extension lifecycle, message passing, and all background processing.
+ * Manages third-party request tracking, cookie detection, tracker identification,
+ * threat detection, and privacy policy analysis.
+ */
 
 // Service worker initialization
 console.log('PrivacyLens background service worker loaded');
@@ -166,10 +171,38 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       }
     });
     return true;
+  } else if (request.action === 'getDataCollection') {
+    // Get comprehensive data collection information
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      if (tabs && tabs.length > 0) {
+        const domain = extractDomain(tabs[0].url);
+        const dataCollection = await getDataCollectionInfo(domain);
+        sendResponse({ dataCollection: dataCollection });
+      } else {
+        sendResponse({ dataCollection: getEmptyDataCollection() });
+      }
+    });
+    return true;
+  } else if (request.action === 'checkPolicyClaims') {
+    // Check if policy claims match actual behavior
+    chrome.tabs.query({ active: true, currentWindow: true }, async (tabs) => {
+      if (tabs && tabs.length > 0) {
+        const claimCheck = await checkPolicyClaims(tabs[0]);
+        sendResponse({ claimCheck: claimCheck });
+      } else {
+        sendResponse({ claimCheck: { isHonest: true, message: null } });
+      }
+    });
+    return true;
   }
 });
 
 // Extract domain from URL
+/**
+ * Extract domain from URL
+ * @param {string} url - Full URL
+ * @returns {string|null} - Hostname or null if invalid URL
+ */
 function extractDomain(url) {
   try {
     const urlObj = new URL(url);
@@ -179,7 +212,11 @@ function extractDomain(url) {
   }
 }
 
-// Extract root domain (e.g., "example.com" from "subdomain.example.com")
+/**
+ * Extract root domain from hostname (e.g., "example.com" from "subdomain.example.com")
+ * @param {string} hostname - Full hostname
+ * @returns {string|null} - Root domain or null if invalid
+ */
 function extractRootDomain(hostname) {
   if (!hostname) return null;
   
@@ -197,7 +234,12 @@ function extractRootDomain(hostname) {
   return hostname;
 }
 
-// Check if a request is third-party
+/**
+ * Check if a request URL is from a third-party domain
+ * @param {string} requestUrl - The request URL to check
+ * @param {string} siteDomain - The current site's domain
+ * @returns {boolean} - True if third-party, false otherwise
+ */
 function isThirdParty(requestUrl, siteDomain) {
   if (!requestUrl || !siteDomain) return false;
   
@@ -222,7 +264,11 @@ function isThirdParty(requestUrl, siteDomain) {
   }
 }
 
-// Store third-party request
+/**
+ * Store third-party request for a domain
+ * @param {string} domain - The site domain
+ * @param {string} requestUrl - The third-party request URL
+ */
 async function storeThirdPartyRequest(domain, requestUrl) {
   const key = `thirdPartyRequests_${domain}`;
   const result = await chrome.storage.local.get([key]);
@@ -238,7 +284,11 @@ async function storeThirdPartyRequest(domain, requestUrl) {
   }
 }
 
-// Get count of third-party requests for a domain
+/**
+ * Get count of unique third-party domains for a site
+ * @param {string} domain - The site domain
+ * @returns {number} - Count of third-party domains
+ */
 async function getThirdPartyCount(domain) {
   const key = `thirdPartyRequests_${domain}`;
   const result = await chrome.storage.local.get([key]);
@@ -246,13 +296,20 @@ async function getThirdPartyCount(domain) {
   return requests.length;
 }
 
-// Clear requests for a domain (when switching tabs)
+/**
+ * Clear third-party requests for a domain (called when switching tabs)
+ * @param {string} domain - The site domain to clear
+ */
 async function clearDomainRequests(domain) {
   const key = `thirdPartyRequests_${domain}`;
   await chrome.storage.local.set({ [key]: [] });
 }
 
-// Get cookies for a domain
+/**
+ * Get all cookies for a domain
+ * @param {string} domain - The site domain
+ * @returns {Array} - Array of cookie objects
+ */
 async function getCookiesForDomain(domain) {
   if (!domain) return [];
   
@@ -305,7 +362,10 @@ async function storeCookieMetadata(domain, cookies) {
   await chrome.storage.local.set({ [key]: metadata });
 }
 
-// Load tracker database from trackers.json
+/**
+ * Load tracker database from trackers.json file
+ * Called on service worker startup
+ */
 async function loadTrackerDatabase() {
   try {
     // Try to load trackers.json
@@ -325,7 +385,11 @@ async function loadTrackerDatabase() {
   }
 }
 
-// Check if a domain is a known tracker
+/**
+ * Check if a domain is a known tracker
+ * @param {string} domain - Domain to check
+ * @returns {Object|null} - Tracker info with category, or null if not a tracker
+ */
 function isKnownTracker(domain) {
   if (!trackerDatabase || !domain) return null;
   
@@ -353,7 +417,11 @@ function isKnownTracker(domain) {
   return null;
 }
 
-// Get detected trackers for a domain
+/**
+ * Get all detected trackers for a domain with category breakdown
+ * @param {string} domain - The site domain
+ * @returns {Object} - Object with total count, trackers array, and categories
+ */
 async function getDetectedTrackers(domain) {
   if (!domain) return [];
   
@@ -475,7 +543,11 @@ async function calculateThreatScore(domain) {
   return { score: score, breakdown: breakdown };
 }
 
-// Calculate risk level based on threat score
+/**
+ * Calculate risk level (Low/Medium/High) based on threat score
+ * @param {string} domain - The site domain
+ * @returns {Object} - Risk level data with color, label, and threat score
+ */
 async function calculateRiskLevel(domain) {
   if (!domain) {
     return { level: 'unknown', color: 'gray', label: 'Unknown', threatScore: 0, breakdown: {} };
@@ -561,6 +633,11 @@ const CRYPTO_MINING_PATTERNS = [
 ];
 
 // Check domain against Abuse.ch URLhaus API
+/**
+ * Check if domain is in Abuse.ch URLhaus malicious domain database
+ * @param {string} domain - Domain to check
+ * @returns {boolean} - True if malicious, false otherwise
+ */
 async function checkDomainAgainstURLhaus(domain) {
   if (!domain) return false;
   
@@ -625,28 +702,54 @@ function containsCryptoMiningPattern(url) {
   return CRYPTO_MINING_PATTERNS.some(pattern => lowerUrl.includes(pattern));
 }
 
-// Store malicious domain detection
+/**
+ * Store detected malicious domain for a site
+ * @param {string} siteDomain - The site domain
+ * @param {string} maliciousDomain - The malicious domain detected
+ */
 async function storeMaliciousDomain(siteDomain, maliciousDomain) {
   const key = `maliciousDomains_${siteDomain}`;
   const result = await chrome.storage.local.get([key]);
   let domains = result[key] || [];
   
-  if (!domains.includes(maliciousDomain)) {
-    domains.push(maliciousDomain);
+  // Check if domain already exists
+  const existingDomain = domains.find(d => 
+    typeof d === 'string' ? d === maliciousDomain : d.domain === maliciousDomain
+  );
+  
+  if (!existingDomain) {
+    // Store as object with timestamp
+    domains.push({
+      domain: maliciousDomain,
+      timestamp: Date.now()
+    });
     await chrome.storage.local.set({ [key]: domains });
   }
 }
 
-// Store crypto mining detection
+/**
+ * Store crypto mining detection status for a site
+ * @param {string} siteDomain - The site domain
+ * @param {boolean} detected - Whether crypto mining was detected
+ */
 async function storeCryptoMining(siteDomain, detected) {
   const key = `cryptoMining_${siteDomain}`;
-  await chrome.storage.local.set({ [key]: detected });
+  const timestampKey = `cryptoMining_${siteDomain}_timestamp`;
+  
+  await chrome.storage.local.set({ 
+    [key]: detected,
+    [timestampKey]: detected ? Date.now() : null
+  });
 }
 
-// Get detected threats for a domain
+/**
+ * Get all detected threats for a domain (malicious domains, crypto mining)
+ * @param {string} domain - The site domain
+ * @returns {Object} - Threat information including malicious domains and crypto mining status
+ */
 async function getDetectedThreats(domain) {
   if (!domain) {
-    return { maliciousDomains: [], cryptoMining: false, maliciousDomainCount: 0 };
+    return { maliciousDomains: [], cryptoMining: false, maliciousDomainCount: 0, cryptoMiningTimestamp: null };
   }
   
   // Get malicious domains
@@ -654,15 +757,23 @@ async function getDetectedThreats(domain) {
   const maliciousResult = await chrome.storage.local.get([maliciousKey]);
   const maliciousDomains = maliciousResult[maliciousKey] || [];
   
-  // Get crypto mining status
+  // Get crypto mining status and timestamp
   const miningKey = `cryptoMining_${domain}`;
-  const miningResult = await chrome.storage.local.get([miningKey]);
+  const miningTimestampKey = `cryptoMining_${domain}_timestamp`;
+  const miningResult = await chrome.storage.local.get([miningKey, miningTimestampKey]);
   const cryptoMining = miningResult[miningKey] || false;
+  const cryptoMiningTimestamp = miningResult[miningTimestampKey] || null;
+  
+  // Normalize malicious domains (handle both old string format and new object format)
+  const normalizedDomains = maliciousDomains.map(d => 
+    typeof d === 'string' ? { domain: d, timestamp: null } : d
+  );
   
   return {
-    maliciousDomains: maliciousDomains,
+    maliciousDomains: normalizedDomains,
     cryptoMining: cryptoMining,
-    maliciousDomainCount: maliciousDomains.length
+    cryptoMiningTimestamp: cryptoMiningTimestamp,
+    maliciousDomainCount: normalizedDomains.length
   };
 }
 
@@ -676,7 +787,11 @@ const SENSITIVE_DATA_PATTERNS = {
   ssn: /\b\d{3}-\d{2}-\d{4}\b/g
 };
 
-// Store form hijacking event
+/**
+ * Store form hijacking detection event
+ * @param {string} siteDomain - The site domain
+ * @param {Object} formData - Form hijacking data (domain, sensitiveFields, timestamp)
+ */
 async function storeFormHijacking(siteDomain, formData) {
   const key = `formHijacking_${siteDomain}`;
   const result = await chrome.storage.local.get([key]);
@@ -698,7 +813,11 @@ async function storeFormHijacking(siteDomain, formData) {
   }
 }
 
-// Store data exfiltration event
+/**
+ * Store data exfiltration detection event
+ * @param {string} siteDomain - The site domain
+ * @param {Object} exfiltrationData - Exfiltration data (domain, dataType, size, timestamp)
+ */
 async function storeDataExfiltration(siteDomain, exfiltrationData) {
   const key = `dataExfiltration_${siteDomain}`;
   const result = await chrome.storage.local.get([key]);
@@ -722,7 +841,11 @@ async function storeDataExfiltration(siteDomain, exfiltrationData) {
   }
 }
 
-// Get data security information
+/**
+ * Get data security information (form hijacking and data exfiltration events)
+ * @param {string} domain - The site domain
+ * @returns {Object} - Object with formHijacking and dataExfiltration arrays
+ */
 async function getDataSecurityInfo(domain) {
   if (!domain) {
     return { formHijacking: [], dataExfiltration: [] };
@@ -744,7 +867,255 @@ async function getDataSecurityInfo(domain) {
   };
 }
 
-// Check if request body contains sensitive data patterns
+// Get comprehensive data collection information
+async function getDataCollectionInfo(domain) {
+  if (!domain) {
+    return getEmptyDataCollection();
+  }
+  
+  // Get all data sources
+  const [thirdPartyDomains, trackers, formHijacking, dataExfiltration, threats] = await Promise.all([
+    getThirdPartyDomains(domain),
+    getDetectedTrackers(domain),
+    getFormHijackingEvents(domain),
+    getDataExfiltrationEvents(domain),
+    getDetectedThreats(domain)
+  ]);
+  
+  // Aggregate Personal Information (from form hijacking and data exfiltration)
+  const personalInfo = {
+    domains: new Map(), // domain -> { types: Set, count: number }
+    totalCount: 0
+  };
+  
+  // From form hijacking
+  for (const event of formHijacking) {
+    if (!personalInfo.domains.has(event.domain)) {
+      personalInfo.domains.set(event.domain, { types: new Set(), count: 0, timestamps: [] });
+    }
+    const domainData = personalInfo.domains.get(event.domain);
+    event.sensitiveFields.forEach(field => domainData.types.add(field));
+    domainData.count++;
+    domainData.timestamps.push(event.timestamp);
+    personalInfo.totalCount++;
+  }
+  
+  // From data exfiltration
+  for (const event of dataExfiltration) {
+    if (!personalInfo.domains.has(event.domain)) {
+      personalInfo.domains.set(event.domain, { types: new Set(), count: 0, timestamps: [] });
+    }
+    const domainData = personalInfo.domains.get(event.domain);
+    domainData.types.add(event.dataType);
+    domainData.count++;
+    domainData.timestamps.push(event.timestamp);
+    personalInfo.totalCount++;
+  }
+  
+  // Aggregate Behavioral Data (from trackers and third-party requests)
+  const behavioralData = {
+    domains: new Map(), // domain -> { categories: Set, requestCount: number }
+    totalRequests: thirdPartyDomains.length,
+    trackerCount: trackers.total || 0
+  };
+  
+  // From third-party requests
+  for (const requestDomain of thirdPartyDomains) {
+    if (!behavioralData.domains.has(requestDomain)) {
+      behavioralData.domains.set(requestDomain, { categories: new Set(), requestCount: 0 });
+    }
+    behavioralData.domains.get(requestDomain).requestCount++;
+  }
+  
+  // From trackers
+  if (trackers.trackers) {
+    for (const tracker of trackers.trackers) {
+      if (!behavioralData.domains.has(tracker.domain)) {
+        behavioralData.domains.set(tracker.domain, { categories: new Set(), requestCount: 0 });
+      }
+      const domainData = behavioralData.domains.get(tracker.domain);
+      domainData.categories.add(tracker.category);
+    }
+  }
+  
+  // Aggregate Form Data (from form hijacking)
+  const formData = {
+    domains: new Map(), // domain -> { fields: Set, count: number, timestamps: [] }
+    totalForms: formHijacking.length
+  };
+  
+  for (const event of formHijacking) {
+    if (!formData.domains.has(event.domain)) {
+      formData.domains.set(event.domain, { fields: new Set(), count: 0, timestamps: [] });
+    }
+    const domainData = formData.domains.get(event.domain);
+    event.sensitiveFields.forEach(field => domainData.fields.add(field));
+    domainData.count++;
+    domainData.timestamps.push(event.timestamp);
+  }
+  
+  // Convert Maps to arrays for JSON serialization
+  return {
+    personalInfo: {
+      domains: Array.from(personalInfo.domains.entries()).map(([domain, data]) => ({
+        domain,
+        types: Array.from(data.types),
+        count: data.count,
+        timestamps: data.timestamps
+      })),
+      totalCount: personalInfo.totalCount
+    },
+    behavioralData: {
+      domains: Array.from(behavioralData.domains.entries()).map(([domain, data]) => ({
+        domain,
+        categories: Array.from(data.categories),
+        requestCount: data.requestCount
+      })),
+      totalRequests: behavioralData.totalRequests,
+      trackerCount: behavioralData.trackerCount
+    },
+    formData: {
+      domains: Array.from(formData.domains.entries()).map(([domain, data]) => ({
+        domain,
+        fields: Array.from(data.fields),
+        count: data.count,
+        timestamps: data.timestamps
+      })),
+      totalForms: formData.totalForms
+    },
+    threats: {
+      maliciousDomains: threats.maliciousDomains || [],
+      cryptoMining: threats.cryptoMining || false,
+      formHijackingCount: formHijacking.length,
+      dataExfiltrationCount: dataExfiltration.length
+    }
+  };
+}
+
+// Helper function to get third-party domains list
+async function getThirdPartyDomains(domain) {
+  const key = `thirdPartyRequests_${domain}`;
+  const result = await chrome.storage.local.get([key]);
+  return result[key] || [];
+}
+
+// Helper function to get form hijacking events
+async function getFormHijackingEvents(domain) {
+  const key = `formHijacking_${domain}`;
+  const result = await chrome.storage.local.get([key]);
+  return result[key] || [];
+}
+
+// Helper function to get data exfiltration events
+async function getDataExfiltrationEvents(domain) {
+  const key = `dataExfiltration_${domain}`;
+  const result = await chrome.storage.local.get([key]);
+  return result[key] || [];
+}
+
+// Helper function to return empty data collection structure
+function getEmptyDataCollection() {
+  return {
+    personalInfo: { domains: [], totalCount: 0 },
+    behavioralData: { domains: [], totalRequests: 0, trackerCount: 0 },
+    formData: { domains: [], totalForms: 0 },
+    threats: { maliciousDomains: [], cryptoMining: false, formHijackingCount: 0, dataExfiltrationCount: 0 }
+  };
+}
+
+// Check if privacy policy claims match actual behavior
+async function checkPolicyClaims(tab) {
+  const domain = extractDomain(tab.url);
+  if (!domain) {
+    return { isHonest: true, message: null };
+  }
+  
+  // Get actual detected behavior
+  const trackers = await getDetectedTrackers(domain);
+  const thirdPartyCount = await getThirdPartyCount(domain);
+  const hasTrackers = (trackers.total || 0) > 0;
+  const hasThirdParty = thirdPartyCount > 0;
+  
+  // If no trackers or third-party requests, no need to check policy
+  if (!hasTrackers && !hasThirdParty) {
+    return { isHonest: true, message: null };
+  }
+  
+  try {
+    // Try to fetch privacy policy
+    const policyUrl = await findPrivacyPolicyUrl(tab);
+    if (!policyUrl) {
+      // Can't verify if policy not found
+      return { isHonest: true, message: null, policyFound: false };
+    }
+    
+    // Fetch and extract policy text
+    let policyText = '';
+    try {
+      const response = await fetch(policyUrl);
+      const html = await response.text();
+      
+      // Basic text extraction (remove scripts, styles, etc.)
+      let cleanHtml = html.replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '');
+      cleanHtml = cleanHtml.replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '');
+      cleanHtml = cleanHtml.replace(/<nav[^>]*>[\s\S]*?<\/nav>/gi, '');
+      cleanHtml = cleanHtml.replace(/<header[^>]*>[\s\S]*?<\/header>/gi, '');
+      cleanHtml = cleanHtml.replace(/<footer[^>]*>[\s\S]*?<\/footer>/gi, '');
+      
+      // Extract text
+      policyText = cleanHtml.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().toLowerCase();
+    } catch (e) {
+      console.error('Error fetching policy:', e);
+      return { isHonest: true, message: null, policyFound: false };
+    }
+    
+    if (!policyText || policyText.length < 100) {
+      return { isHonest: true, message: null, policyFound: false };
+    }
+    
+    // Check for keywords indicating data sharing/collection
+    const sharingKeywords = ['share', 'third party', 'third-party', 'analytics', 'collect', 'tracking', 'advertising'];
+    const noSharingKeywords = ['do not share', 'don\'t share', 'we do not share', 'we don\'t share', 'no sharing', 'not shared', 'never share'];
+    
+    // Check if policy mentions sharing/collection
+    const mentionsSharing = sharingKeywords.some(keyword => policyText.includes(keyword));
+    
+    // Check if policy explicitly says "no sharing"
+    const claimsNoSharing = noSharingKeywords.some(keyword => policyText.includes(keyword));
+    
+    // If policy claims "no sharing" but we detected trackers/third-party requests
+    if (claimsNoSharing && (hasTrackers || hasThirdParty)) {
+      return {
+        isHonest: false,
+        message: 'Site not honest',
+        reason: 'Policy claims no sharing but trackers detected'
+      };
+    }
+    
+    // If policy doesn't mention sharing/collection at all but we detected trackers
+    // This is less definitive, but worth noting
+    if (!mentionsSharing && hasTrackers) {
+      return {
+        isHonest: false,
+        message: 'Site not honest',
+        reason: 'Policy doesn\'t mention sharing but trackers detected'
+      };
+    }
+    
+    // Policy seems honest (either mentions sharing or doesn't claim no sharing)
+    return { isHonest: true, message: null };
+    
+  } catch (e) {
+    console.error('Error checking policy claims:', e);
+    return { isHonest: true, message: null };
+  }
+}
+
+/**
+ * Detect sensitive data patterns in request body (email, phone, credit card, SSN)
+ * @param {string} requestBody - Request body as string
+ * @returns {Array} - Array of detected data types
+ */
 function detectSensitiveDataInRequest(requestBody) {
   if (!requestBody) return [];
   
@@ -858,7 +1229,11 @@ chrome.webRequest.onBeforeRequest.addListener(
 
 // Privacy Policy Analysis Functions
 
-// Find privacy policy URL
+/**
+ * Find privacy policy URL by trying common paths and searching page links
+ * @param {Object} tab - Chrome tab object
+ * @returns {string|null} - Privacy policy URL or null if not found
+ */
 async function findPrivacyPolicyUrl(tab) {
   const baseUrl = tab.url;
   const urlObj = new URL(baseUrl);
@@ -915,7 +1290,10 @@ async function findPrivacyPolicyUrl(tab) {
   return null;
 }
 
-// Function to find privacy policy link (runs in page context)
+/**
+ * Find privacy policy link in page (runs in page context via executeScript)
+ * @returns {string|null} - Privacy policy link href or null
+ */
 function findPrivacyLink() {
   const links = document.querySelectorAll('a[href*="privacy"], a[href*="Privacy"], a[href*="terms"], a[href*="Terms"]');
   for (const link of links) {
@@ -928,38 +1306,8 @@ function findPrivacyLink() {
   return null;
 }
 
-// Extract text from privacy policy page
-async function extractPolicyText(policyUrl, tabId) {
-  try {
-    // Navigate to policy page if needed (or inject script)
-    const result = await chrome.tabs.sendMessage(tabId, { action: 'extractText' });
-    if (result && result.text) {
-      return result.text;
-    }
-  } catch (e) {
-    console.error('Error extracting text:', e);
-  }
-  
-  // Fallback: try fetching the page
-  try {
-    const response = await fetch(policyUrl);
-    const html = await response.text();
-    const parser = new DOMParser();
-    const doc = parser.parseFromString(html, 'text/html');
-    
-    // Extract text similar to content script
-    const main = doc.querySelector('main, article, [role="main"], .content, #content, body');
-    if (main) {
-      return main.innerText || main.textContent || '';
-    }
-  } catch (e) {
-    console.error('Error fetching policy:', e);
-  }
-  
-  return null;
-}
-
-// Analyze privacy policy using Hugging Face API
+/**
+ * Analyze privacy policy using Hugging Face API
 async function analyzePrivacyPolicy(tab) {
   const domain = extractDomain(tab.url);
   const cacheKey = `policyAnalysis_${domain}`;
@@ -1054,7 +1402,11 @@ async function analyzePrivacyPolicy(tab) {
   }
 }
 
-// Call Hugging Face Inference API
+/**
+ * Call Hugging Face Inference API for privacy policy analysis
+ * @param {string} text - Policy text to analyze
+ * @returns {Object} - Analysis results or error object
+ */
 async function callHuggingFaceAPI(text) {
   // Get API key from config.js or storage (config.js takes priority)
   let apiKey = null;

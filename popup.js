@@ -1,5 +1,9 @@
-// PrivacyLens Popup Script
-// Handles UI interactions and displays scan results
+/**
+ * PrivacyLens Popup Script
+ * 
+ * Handles UI interactions and displays scan results.
+ * Manages all popup UI updates, data loading, and user interactions.
+ */
 
 // Initialize popup when DOM is ready
 document.addEventListener('DOMContentLoaded', async () => {
@@ -23,6 +27,10 @@ document.addEventListener('DOMContentLoaded', async () => {
       await loadThreats();
       // Load and display data security
       await loadDataSecurity();
+      // Load and display data collection
+      await loadDataCollection();
+      // Check policy claims
+      await checkPolicyClaims();
     } else {
       displayError('Unable to detect current tab');
     }
@@ -39,6 +47,8 @@ document.addEventListener('DOMContentLoaded', async () => {
     await loadRiskLevel();
     await loadThreats();
     await loadDataSecurity();
+    await loadDataCollection();
+    await checkPolicyClaims();
   }, 1000); // Update every second
   
   // Set up analyze button
@@ -52,7 +62,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 function displayCurrentUrl(url) {
   const urlDisplay = document.getElementById('urlDisplay');
   if (urlDisplay) {
-    urlDisplay.textContent = `Scanning: ${url}`;
+    // Display the short/root domain instead of full URL
+    try {
+      const domain = (new URL(url)).hostname.replace(/^www\./, '');
+      urlDisplay.textContent = `Scanning: ${domain}`;
+    } catch (e) {
+      urlDisplay.textContent = `Scanning: ${url}`;
+    }
   }
 }
 
@@ -72,7 +88,11 @@ async function loadThirdPartyCount() {
 function displayThirdPartyCount(count) {
   const countDisplay = document.getElementById('thirdPartyCount');
   if (countDisplay) {
-    countDisplay.textContent = `Third-party requests: ${count}`;
+    // Update the number in the card
+    const numberElement = countDisplay.querySelector('.text-lg');
+    if (numberElement) {
+      numberElement.textContent = count;
+    }
   }
 }
 
@@ -92,7 +112,11 @@ async function loadCookieCount() {
 function displayCookieCount(count) {
   const countDisplay = document.getElementById('cookieCount');
   if (countDisplay) {
-    countDisplay.textContent = `Cookies: ${count}`;
+    // Update the number in the card
+    const numberElement = countDisplay.querySelector('.text-lg');
+    if (numberElement) {
+      numberElement.textContent = count;
+    }
   }
 }
 
@@ -115,7 +139,11 @@ function displayTrackers(trackerData) {
   
   if (trackerDisplay) {
     const count = trackerData.total || 0;
-    trackerDisplay.textContent = `Known trackers: ${count}`;
+    // Update the number in the card
+    const numberElement = trackerDisplay.querySelector('.text-lg');
+    if (numberElement) {
+      numberElement.textContent = count;
+    }
   }
   
   if (trackerCategories && trackerData.byCategory) {
@@ -357,22 +385,30 @@ function displayThreats(threatData) {
       threatsCount.textContent = `${totalThreats} threat${totalThreats !== 1 ? 's' : ''} detected`;
     }
     
-    // Update malicious domains list
+    // Update malicious domains list with timestamps
     if (maliciousDomainsList) {
       if (maliciousCount > 0) {
-        maliciousDomainsList.innerHTML = threatData.maliciousDomains
-          .map(domain => `<li class="text-red-700">${domain}</li>`)
-          .join('');
+        const domains = Array.isArray(threatData.maliciousDomains) ? threatData.maliciousDomains : [];
+        maliciousDomainsList.innerHTML = domains.map(item => {
+          const domain = typeof item === 'string' ? item : item.domain;
+          const timestamp = typeof item === 'object' && item.timestamp 
+            ? ` (${new Date(item.timestamp).toLocaleTimeString()})`
+            : '';
+          return `<li class="text-red-700">${domain}${timestamp}</li>`;
+        }).join('');
         maliciousDomainsList.parentElement.style.display = 'block';
       } else {
         maliciousDomainsList.parentElement.style.display = 'none';
       }
     }
     
-    // Update crypto mining status
+    // Update crypto mining status with timestamp
     if (cryptoMiningStatus) {
       if (hasCryptoMining) {
-        cryptoMiningStatus.textContent = 'Yes - Cryptocurrency mining detected';
+        const timestamp = threatData.cryptoMiningTimestamp 
+          ? ` (${new Date(threatData.cryptoMiningTimestamp).toLocaleTimeString()})`
+          : '';
+        cryptoMiningStatus.textContent = `Yes - Cryptocurrency mining detected${timestamp}`;
         cryptoMiningStatus.classList.add('text-red-700');
         cryptoMiningStatus.parentElement.style.display = 'block';
       } else {
@@ -429,7 +465,10 @@ function displayDataSecurity(dataSecurity) {
           const fields = event.sensitiveFields.length > 0 
             ? ` (${event.sensitiveFields.join(', ')})` 
             : '';
-          return `<li class="text-red-700">${event.domain}${fields}</li>`;
+          const timestamp = event.timestamp 
+            ? ` (${new Date(event.timestamp).toLocaleTimeString()})`
+            : '';
+          return `<li class="text-red-700">${event.domain}${fields}${timestamp}</li>`;
         }).join('');
         formHijackingList.parentElement.style.display = 'block';
       }
@@ -457,7 +496,10 @@ function displayDataSecurity(dataSecurity) {
           const size = event.size > 1024 
             ? ` (${(event.size / 1024).toFixed(1)}KB)` 
             : '';
-          return `<li class="text-red-700">${event.domain}: ${event.dataType}${size}</li>`;
+          const timestamp = event.timestamp 
+            ? ` (${new Date(event.timestamp).toLocaleTimeString()})`
+            : '';
+          return `<li class="text-red-700">${event.domain}: ${event.dataType}${size}${timestamp}</li>`;
         }).join('');
         dataExfiltrationList.parentElement.style.display = 'block';
       }
@@ -473,6 +515,188 @@ function displayDataSecurity(dataSecurity) {
     }
   } else {
     dataSecuritySection.style.display = 'none';
+  }
+}
+
+// Load data collection information
+async function loadDataCollection() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'getDataCollection' });
+    if (response && response.dataCollection) {
+      displayDataCollection(response.dataCollection);
+    }
+  } catch (error) {
+    console.error('Error getting data collection:', error);
+  }
+}
+
+// Display data collection information
+function displayDataCollection(dataCollection) {
+  const dataCollectionSection = document.getElementById('dataCollectionSection');
+  const dataSharedSection = document.getElementById('dataSharedSection');
+  
+  if (!dataCollectionSection || !dataSharedSection) return;
+  
+  const { personalInfo, behavioralData, formData, threats } = dataCollection;
+  const hasData = personalInfo.totalCount > 0 || behavioralData.totalRequests > 0 || formData.totalForms > 0;
+  
+  // Show/hide Data Being Collected section
+  if (hasData) {
+    dataCollectionSection.style.display = 'block';
+    
+    // Display Personal Information
+    const personalInfoList = document.getElementById('personalInfoList');
+    if (personalInfoList) {
+      if (personalInfo.domains.length > 0) {
+        personalInfoList.innerHTML = personalInfo.domains.map(item => {
+          const types = item.types.join(', ');
+          const timeStr = item.timestamps.length > 0 
+            ? ` (${new Date(Math.min(...item.timestamps)).toLocaleTimeString()})`
+            : '';
+          return `<div class="mb-1">${item.domain}: ${types} (${item.count} event${item.count !== 1 ? 's' : ''})${timeStr}</div>`;
+        }).join('');
+      } else {
+        personalInfoList.innerHTML = '<div class="text-gray-500">No personal information detected</div>';
+      }
+    }
+    
+    // Display Behavioral Data
+    const behavioralDataList = document.getElementById('behavioralDataList');
+    if (behavioralDataList) {
+      if (behavioralData.domains.length > 0) {
+        behavioralDataList.innerHTML = behavioralData.domains.map(item => {
+          const categories = item.categories.length > 0 ? ` (${item.categories.join(', ')})` : '';
+          return `<div class="mb-1">${item.domain}: ${item.requestCount} request${item.requestCount !== 1 ? 's' : ''}${categories}</div>`;
+        }).join('');
+      } else {
+        behavioralDataList.innerHTML = '<div class="text-gray-500">No behavioral tracking detected</div>';
+      }
+    }
+    
+    // Display Form Data
+    const formDataList = document.getElementById('formDataList');
+    if (formDataList) {
+      if (formData.domains.length > 0) {
+        formDataList.innerHTML = formData.domains.map(item => {
+          const fields = item.fields.join(', ');
+          const timeStr = item.timestamps.length > 0 
+            ? ` (${new Date(Math.min(...item.timestamps)).toLocaleTimeString()})`
+            : '';
+          return `<div class="mb-1">${item.domain}: ${fields} (${item.count} form${item.count !== 1 ? 's' : ''})${timeStr}</div>`;
+        }).join('');
+      } else {
+        formDataList.innerHTML = '<div class="text-gray-500">No form data detected</div>';
+      }
+    }
+  } else {
+    dataCollectionSection.style.display = 'none';
+  }
+  
+  // Display Data Shared With section
+  // Aggregate all domains that receive data
+  const sharedDomains = new Map();
+  
+  // Add personal info domains
+  personalInfo.domains.forEach(item => {
+    if (!sharedDomains.has(item.domain)) {
+      sharedDomains.set(item.domain, { types: [], count: 0 });
+    }
+    const domainData = sharedDomains.get(item.domain);
+    item.types.forEach(type => {
+      if (!domainData.types.includes(type)) domainData.types.push(type);
+    });
+    domainData.count += item.count;
+  });
+  
+  // Add behavioral data domains
+  behavioralData.domains.forEach(item => {
+    if (!sharedDomains.has(item.domain)) {
+      sharedDomains.set(item.domain, { types: [], count: 0 });
+    }
+    const domainData = sharedDomains.get(item.domain);
+    if (!domainData.types.includes('tracking')) domainData.types.push('tracking');
+    domainData.count += item.requestCount;
+  });
+  
+  // Add form data domains
+  formData.domains.forEach(item => {
+    if (!sharedDomains.has(item.domain)) {
+      sharedDomains.set(item.domain, { types: [], count: 0 });
+    }
+    const domainData = sharedDomains.get(item.domain);
+    item.fields.forEach(field => {
+      if (!domainData.types.includes(field)) domainData.types.push(field);
+    });
+    domainData.count += item.count;
+  });
+  
+  const dataSharedList = document.getElementById('dataSharedList');
+  const dataSharedMore = document.getElementById('dataSharedMore');
+  const dataSharedAll = document.getElementById('dataSharedAll');
+  
+  if (dataSharedList && sharedDomains.size > 0) {
+    dataSharedSection.style.display = 'block';
+    
+    // Sort domains by count (descending)
+    const sortedDomains = Array.from(sharedDomains.entries())
+      .sort((a, b) => b[1].count - a[1].count);
+    
+    // Show first 5 domains
+    const top5Domains = sortedDomains.slice(0, 5);
+    dataSharedList.innerHTML = top5Domains.map(([domain, data]) => {
+      const types = data.types.join(', ');
+      return `<div class="mb-1">${domain}: ${types} (${data.count} data point${data.count !== 1 ? 's' : ''})</div>`;
+    }).join('');
+    
+    // If there are more than 5 domains, show expandable section
+    if (sortedDomains.length > 3) {
+      const remainingDomains = sortedDomains.slice(3);
+      if (dataSharedMore) {
+        dataSharedMore.style.display = 'block';
+        // Update summary text to show count
+        const summary = dataSharedMore.querySelector('summary');
+        if (summary) {
+          summary.textContent = `Show all ${sortedDomains.length} sites`;
+        }
+      }
+      if (dataSharedAll) {
+        dataSharedAll.innerHTML = remainingDomains.map(([domain, data]) => {
+          const types = data.types.join(', ');
+          return `<div class="mb-1">${domain}: ${types} (${data.count} data point${data.count !== 1 ? 's' : ''})</div>`;
+        }).join('');
+      }
+    } else {
+      // Hide expandable section if 5 or fewer domains
+      if (dataSharedMore) {
+        dataSharedMore.style.display = 'none';
+      }
+    }
+  } else {
+    dataSharedSection.style.display = 'none';
+  }
+}
+
+// Check policy claims
+async function checkPolicyClaims() {
+  try {
+    const response = await chrome.runtime.sendMessage({ action: 'checkPolicyClaims' });
+    if (response && response.claimCheck) {
+      displayPolicyWarning(response.claimCheck);
+    }
+  } catch (error) {
+    console.error('Error checking policy claims:', error);
+  }
+}
+
+// Display policy warning card
+function displayPolicyWarning(claimCheck) {
+  const warningCard = document.getElementById('policyWarningCard');
+  if (!warningCard) return;
+  
+  if (claimCheck.isHonest === false && claimCheck.message) {
+    warningCard.style.display = 'block';
+  } else {
+    warningCard.style.display = 'none';
   }
 }
 
